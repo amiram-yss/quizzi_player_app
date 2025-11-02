@@ -2,23 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+
 
 void main() {
   runApp(MyApp());
 }
 
-
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Trivia Game',
+      title: 'Quizzi Player',
       theme: ThemeData(
-        primarySwatch: Colors.orange,
+        primarySwatch: Colors.cyan,
+        primaryColor: Color(0xFF00BCD4), // Teal color from image
         scaffoldBackgroundColor: Colors.black,
         appBarTheme: AppBarTheme(
-          backgroundColor: Colors.grey[900],
+          backgroundColor: Color(0xFF1E1E1E),
           foregroundColor: Colors.white,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Color(0xFF00BCD4),
+            foregroundColor: Colors.white,
+          ),
         ),
       ),
       home: LoginPage(),
@@ -104,7 +112,7 @@ class _LoginPageState extends State<LoginPage> {
                 height: 100,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.orange,
+                  color: Color(0xFF00BCD4),
                 ),
                 child: Icon(
                   Icons.quiz_outlined,
@@ -116,7 +124,7 @@ class _LoginPageState extends State<LoginPage> {
 
               // Title
               Text(
-                'Trivia Game',
+                'Quizzi Player',
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
@@ -128,15 +136,15 @@ class _LoginPageState extends State<LoginPage> {
               // Game Code Input
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.grey[800],
+                  color: Color(0xFF2E2E2E),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
                   controller: _gameCodeController,
                   decoration: InputDecoration(
-                    labelText: 'Game Code (6 digits)',
+                    labelText: 'Pin code (6 digits)',
                     labelStyle: TextStyle(color: Colors.white70),
-                    prefixIcon: Icon(Icons.games, color: Colors.orange),
+                    prefixIcon: Icon(Icons.games, color: Color(0xFF00BCD4)),
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.all(20),
                     counterText: '',
@@ -151,15 +159,15 @@ class _LoginPageState extends State<LoginPage> {
               // Player Name Input
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.grey[800],
+                  color: Color(0xFF2E2E2E),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: TextField(
                   controller: _playerNameController,
                   decoration: InputDecoration(
-                    labelText: 'Player Name',
+                    labelText: 'Full name',
                     labelStyle: TextStyle(color: Colors.white70),
-                    prefixIcon: Icon(Icons.person, color: Colors.orange),
+                    prefixIcon: Icon(Icons.person, color: Color(0xFF00BCD4)),
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.all(20),
                   ),
@@ -175,7 +183,7 @@ class _LoginPageState extends State<LoginPage> {
                 child: ElevatedButton(
                   onPressed: _isConnecting ? null : _joinGame,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
+                    backgroundColor: Color(0xFF00BCD4),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(15),
                     ),
@@ -236,7 +244,9 @@ class _GamePageState extends State<GamePage> {
   int _questionNumber = 0;
   int _timeLeft = 20;
   int? _selectedAnswer;
+  int? _correctAnswer;
   bool _canAnswer = false;
+  bool _questionEnded = false;
   Timer? _timer;
   bool _isConnected = false;
 
@@ -248,15 +258,23 @@ class _GamePageState extends State<GamePage> {
 
   void _connectToGame() async {
     try {
-      final wsUrl = 'wss://quizzi-server.onrender.com/multiplayer/player/${widget.sessionId}';
-      print('Connecting to: $wsUrl');
+      // בדיקה אם ריצה לוקאלית
+      final isLocal = !kReleaseMode;
 
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
-      // Send player name
+      // אם ריצה לוקאלית – נשתמש בשרת לוקאלי
+      final baseUrl = // isLocal ?
+          'ws://127.0.0.1:8001/multiplayer/player/${widget.sessionId}';// :
+      //'wss://quizzi-server.onrender.com/multiplayer/player/${widget.sessionId}';
+
+      print('Connecting to: $baseUrl');
+
+      _channel = WebSocketChannel.connect(Uri.parse(baseUrl));
+
+      // שליחת שם השחקן
       _channel!.sink.add(json.encode({'player_name': widget.playerName}));
 
-      // Listen to messages
+      // האזנה להודעות
       _channel!.stream.listen(
             (message) {
           print('Received: $message');
@@ -291,6 +309,7 @@ class _GamePageState extends State<GamePage> {
     }
   }
 
+
   void _handleMessage(Map<String, dynamic> data) {
     print('Handling message: $data');
 
@@ -311,11 +330,36 @@ class _GamePageState extends State<GamePage> {
       case 'new_question':
         setState(() {
           _question = data['question']?.toString() ?? '';
-          _answers = List<String>.from(data['answers'] ?? []);
-          _questionNumber = (data['question_index'] ?? 0) + 1;
-          _timeLeft = 20;
+
+          // Handle both array format and object format for answers
+          if (data['answers'] is List) {
+            _answers = List<String>.from(data['answers']);
+          } else if (data['question'] is Map) {
+            // If question is an object with answers property
+            final questionData = data['question'] as Map<String, dynamic>;
+            if (questionData['answers'] is List) {
+              _answers = List<String>.from(questionData['answers']);
+            }
+            // Update question text if it's in the object
+            if (questionData['question'] != null) {
+              _question = questionData['question'].toString();
+            }
+          }
+
+          // Ensure we have exactly 4 answers
+          while (_answers.length < 4) {
+            _answers.add('Answer ${_answers.length + 1}');
+          }
+          if (_answers.length > 4) {
+            _answers = _answers.take(4).toList();
+          }
+
+          _questionNumber = (data['question_index'] ?? 0);
+          _timeLeft = data['time_limit'] ?? 20;
           _selectedAnswer = null;
+          _correctAnswer = null;
           _canAnswer = true;
+          _questionEnded = false;
           _gameStatus = 'Question $_questionNumber';
         });
         _startTimer();
@@ -328,7 +372,14 @@ class _GamePageState extends State<GamePage> {
       case 'question_ended':
         setState(() {
           _canAnswer = false;
+          _questionEnded = true;
           _gameStatus = 'Question ended';
+
+          // Extract correct answer if provided
+          final stats = data['statistics'];
+          if (stats != null && stats['correct_answer'] != null) {
+            _correctAnswer = int.tryParse(stats['correct_answer'].toString());
+          }
         });
         _stopTimer();
         break;
@@ -337,12 +388,13 @@ class _GamePageState extends State<GamePage> {
         setState(() {
           _gameStatus = 'Game ended!';
           _canAnswer = false;
+          _questionEnded = true;
         });
         _stopTimer();
 
         // Show game results if available
-        if (data['my_statistics'] != null) {
-          _showGameResults(data['my_statistics']);
+        if (data['full_statistics'] != null) {
+          _showGameResults(data['full_statistics']);
         }
         break;
 
@@ -391,7 +443,7 @@ class _GamePageState extends State<GamePage> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          backgroundColor: Colors.grey[800],
+          backgroundColor: Color(0xFF2E2E2E),
           title: Text(
             'Game Results',
             style: TextStyle(color: Colors.white),
@@ -401,13 +453,13 @@ class _GamePageState extends State<GamePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Total Questions: ${stats['total_questions'] ?? 0}',
-                style: TextStyle(color: Colors.white),
+                'Thank you for playing!',
+                style: TextStyle(color: Color(0xFF00BCD4), fontSize: 16),
               ),
               SizedBox(height: 10),
               Text(
-                'Thank you for playing!',
-                style: TextStyle(color: Colors.orange),
+                'Game completed successfully.',
+                style: TextStyle(color: Colors.white70),
               ),
             ],
           ),
@@ -419,7 +471,7 @@ class _GamePageState extends State<GamePage> {
               },
               child: Text(
                 'Back to Main Menu',
-                style: TextStyle(color: Colors.orange),
+                style: TextStyle(color: Color(0xFF00BCD4)),
               ),
             ),
           ],
@@ -430,8 +482,40 @@ class _GamePageState extends State<GamePage> {
 
   Color _getTimerColor() {
     if (_timeLeft > 15) return Colors.green;
-    if (_timeLeft > 10) return Colors.orange;
+    if (_timeLeft > 10) return Color(0xFF00BCD4);
     return Colors.red;
+  }
+
+  Color _getAnswerButtonColor(int index) {
+    if (_questionEnded) {
+      // Show correct answer in green
+      if (_correctAnswer != null && index == _correctAnswer) {
+        return Colors.green;
+      }
+      // Show selected wrong answer in red
+      if (_selectedAnswer == index && _correctAnswer != null && index != _correctAnswer) {
+        return Colors.red;
+      }
+      // Other answers remain gray when question ended
+      return Color(0xFF424242);
+    } else {
+      // During question: highlight selected answer
+      return _selectedAnswer == index ? Color(0xFF00BCD4) : Color(0xFF424242);
+    }
+  }
+
+  Color _getAnswerBorderColor(int index) {
+    if (_questionEnded) {
+      if (_correctAnswer != null && index == _correctAnswer) {
+        return Colors.green;
+      }
+      if (_selectedAnswer == index && _correctAnswer != null && index != _correctAnswer) {
+        return Colors.red;
+      }
+      return Colors.transparent;
+    } else {
+      return _selectedAnswer == index ? Color(0xFF00BCD4) : Colors.transparent;
+    }
   }
 
   @override
@@ -452,7 +536,7 @@ class _GamePageState extends State<GamePage> {
               height: 30,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.orange,
+                color: Color(0xFF00BCD4),
               ),
               child: Center(
                 child: Text(
@@ -465,7 +549,12 @@ class _GamePageState extends State<GamePage> {
               ),
             ),
             SizedBox(width: 10),
-            Text(widget.playerName),
+            Expanded(
+              child: Text(
+                widget.playerName,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -473,7 +562,7 @@ class _GamePageState extends State<GamePage> {
             margin: EdgeInsets.only(right: 15),
             child: Center(
               child: Text(
-                'Pin: ${widget.sessionId}',
+                'Pin code: ${widget.sessionId}',
                 style: TextStyle(
                   color: Colors.white70,
                   fontSize: 14,
@@ -526,7 +615,7 @@ class _GamePageState extends State<GamePage> {
               if (_question.isNotEmpty) ...[
                 // Question Number
                 Text(
-                  'Question $_questionNumber',
+                  'Question num $_questionNumber',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 28,
@@ -540,9 +629,9 @@ class _GamePageState extends State<GamePage> {
                   width: double.infinity,
                   padding: EdgeInsets.all(25),
                   decoration: BoxDecoration(
-                    color: Colors.grey[800],
+                    color: Color(0xFF2E2E2E),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                    border: Border.all(color: Color(0xFF00BCD4).withOpacity(0.3)),
                   ),
                   child: Text(
                     _question,
@@ -556,28 +645,30 @@ class _GamePageState extends State<GamePage> {
                 ),
                 SizedBox(height: 30),
 
-                // Answer Buttons
+                // Answer Buttons (2x2 Grid)
                 Expanded(
                   child: GridView.count(
                     crossAxisCount: 2,
                     crossAxisSpacing: 15,
                     mainAxisSpacing: 15,
-                    children: List.generate(_answers.length, (index) {
-                      final isSelected = _selectedAnswer == index;
+                    childAspectRatio: 2.4,
+                    children: List.generate(4, (index) {
+                      if (index >= _answers.length) return SizedBox.shrink();
+
                       return GestureDetector(
                         onTap: _canAnswer ? () => _submitAnswer(index) : null,
                         child: AnimatedContainer(
                           duration: Duration(milliseconds: 200),
                           decoration: BoxDecoration(
-                            color: isSelected ? Colors.orange : Colors.grey[700],
+                            color: _getAnswerButtonColor(index),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: isSelected ? Colors.orange : Colors.transparent,
+                              color: _getAnswerBorderColor(index),
                               width: 3,
                             ),
-                            boxShadow: isSelected ? [
+                            boxShadow: (_selectedAnswer == index && !_questionEnded) ? [
                               BoxShadow(
-                                color: Colors.orange.withOpacity(0.4),
+                                color: Color(0xFF00BCD4).withOpacity(0.4),
                                 blurRadius: 10,
                                 spreadRadius: 2,
                               )
@@ -629,7 +720,7 @@ class _GamePageState extends State<GamePage> {
                           Icon(
                             Icons.hourglass_empty,
                             size: 60,
-                            color: Colors.orange,
+                            color: Color(0xFF00BCD4),
                           ),
                           SizedBox(height: 20),
                           Text(
@@ -641,7 +732,7 @@ class _GamePageState extends State<GamePage> {
                             textAlign: TextAlign.center,
                           ),
                         ] else ...[
-                          CircularProgressIndicator(color: Colors.orange),
+                          CircularProgressIndicator(color: Color(0xFF00BCD4)),
                           SizedBox(height: 20),
                           Text(
                             _gameStatus,
@@ -658,7 +749,7 @@ class _GamePageState extends State<GamePage> {
                                 Navigator.of(context).pop();
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
+                                backgroundColor: Color(0xFF00BCD4),
                               ),
                               child: Text(
                                 'Back to Main Menu',
