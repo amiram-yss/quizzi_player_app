@@ -264,8 +264,8 @@ class _GamePageState extends State<GamePage> {
 
       // אם ריצה לוקאלית – נשתמש בשרת לוקאלי
       final baseUrl = // isLocal ?
-          'ws://127.0.0.1:8001/multiplayer/player/${widget.sessionId}';// :
-      //'wss://quizzi-server.onrender.com/multiplayer/player/${widget.sessionId}';
+          //'ws://127.0.0.1:8001/multiplayer/player/${widget.sessionId}' :
+          'wss://quizzi-server.onrender.com/multiplayer/player/${widget.sessionId}';
 
       print('Connecting to: $baseUrl');
 
